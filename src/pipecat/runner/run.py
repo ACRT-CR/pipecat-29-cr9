@@ -193,6 +193,17 @@ def _create_server_app(
     return app
 
 
+def _resolve_download_path(folder: str, filename: str) -> Path:
+    """Resolve a download path and ensure it stays within the downloads folder."""
+    allowed_base = Path(folder).resolve()
+    file_path = (allowed_base / filename).resolve()
+
+    if not file_path.is_relative_to(allowed_base):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return file_path
+
+
 def _setup_webrtc_routes(
     app: FastAPI, *, esp32_mode: bool = False, host: str = "localhost", folder: Optional[str] = None
 ):
@@ -217,20 +228,20 @@ def _setup_webrtc_routes(
         """Redirect root requests to client interface."""
         return RedirectResponse(url="/client/")
 
-    @app.get("/files/{filename}")
+    @app.get("/files/{filename:path}")
     async def download_file(filename: str):
         """Handle file downloads."""
         if not folder:
-            logger.warning(f"Attempting to dowload {filename}, but downloads folder not setup.")
-            return
+            logger.warning(f"Attempting to download {filename}, but downloads folder not setup.")
+            raise HTTPException(404)
 
-        file_path = Path(folder) / filename
-        if not os.path.exists(file_path):
+        file_path = _resolve_download_path(folder, filename)
+        if not file_path.exists():
             raise HTTPException(404)
 
         media_type, _ = mimetypes.guess_type(file_path)
 
-        return FileResponse(path=file_path, media_type=media_type, filename=filename)
+        return FileResponse(path=file_path, media_type=media_type, filename=file_path.name)
 
     # Initialize the SmallWebRTC request handler
     small_webrtc_handler: SmallWebRTCRequestHandler = SmallWebRTCRequestHandler(
